@@ -1,11 +1,14 @@
 <script lang="ts">
   import RiskBadge from '$lib/components/RiskBadge.svelte';
-  import { signalStore } from '$lib/stores/signal-store';
+  import { pendingReviewVersions, signalStore } from '$lib/stores/signal-store';
 
   $: signals = $signalStore;
   $: openSignals = signals.filter((signal) => signal.status !== 'closed');
   $: criticalSignals = signals.filter(
     (signal) => signal.riskLevel === 'critical' || signal.riskLevel === 'high'
+  );
+  $: pendingReview = signals.flatMap((signal) =>
+    pendingReviewVersions(signal).map((version) => ({ signal, version }))
   );
   $: overdueTasks = signals.flatMap((signal) =>
     signal.tasks
@@ -21,7 +24,8 @@
       value: signals.flatMap((signal) => signal.tasks).filter((task) => task.status !== 'done').length,
       note: '跨信号调查任务'
     },
-    { label: '逾期任务', value: overdueTasks.length, note: '按任务截止日计算' }
+    { label: '逾期任务', value: overdueTasks.length, note: '按任务截止日计算' },
+    { label: '待复核结论', value: pendingReview.length, note: '证据变化致结论失效' }
   ];
 </script>
 
@@ -36,9 +40,29 @@
   <a class="btn variant-filled-primary" href="/signals">进入信号台账</a>
 </div>
 
-<section class="workspace-grid mb-6">
+{#if pendingReview.length > 0}
+  <section class="mb-6 rounded border border-amber-400 bg-amber-50 p-4">
+    <h2 class="font-semibold text-amber-950">待复核结论 {pendingReview.length} 项</h2>
+    <p class="mt-1 text-sm text-amber-900">以下信号的结论因引用证据变化而失效，复核人确认前不能继续处置。</p>
+    <ul class="mt-3 space-y-2">
+      {#each pendingReview as item}
+        <li class="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span>
+            <a class="font-medium text-primary-700-300 hover:underline" href={`/signals/${item.signal.id}`}>
+              {item.signal.id}
+            </a>
+            · V{item.version.version}（{item.version.author}）· {item.version.staleReason}
+          </span>
+          <a class="btn btn-sm variant-soft-warning" href={`/signals/${item.signal.id}`}>前往复核</a>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
+
+<section class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
   {#each metrics as metric}
-    <article class="col-span-12 rounded border border-surface-300-700 bg-surface-100-900 p-4 sm:col-span-6 xl:col-span-3">
+    <article class="rounded border border-surface-300-700 bg-surface-100-900 p-4">
       <p class="text-sm text-surface-500-400">{metric.label}</p>
       <p class="metric-value mt-2 text-3xl font-semibold">{metric.value}</p>
       <p class="mt-2 text-xs text-surface-500-400">{metric.note}</p>

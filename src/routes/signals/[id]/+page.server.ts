@@ -1,5 +1,5 @@
 import { fail } from '@sveltejs/kit';
-import { evidenceSchema, transitionSchema, versionSchema } from '$lib/models/signal';
+import { confirmReviewSchema, evidenceSchema, transitionSchema, versionSchema } from '$lib/models/signal';
 
 export function load({ params }) {
   return { id: params.id };
@@ -33,14 +33,13 @@ export const actions = {
     return {
       success: true,
       evidence: {
-        id: `E-${Date.now().toString(36)}`,
         type: parsed.data.evidenceType,
         title: parsed.data.title,
         source: parsed.data.source,
+        sourceBatch: parsed.data.sourceBatch,
         strength: parsed.data.strength,
         batch: parsed.data.batch,
-        note: parsed.data.note,
-        createdAt: new Date().toISOString()
+        note: parsed.data.note
       },
       actor: actorName(formData)
     };
@@ -54,15 +53,23 @@ export const actions = {
     return {
       success: true,
       version: {
-        id: `V-${Date.now().toString(36)}`,
-        version: Number(formData.get('versionNumber') ?? 1),
         author: parsed.data.author,
         summary: parsed.data.summary,
         disposition: parsed.data.disposition,
-        rationale: parsed.data.rationale,
-        createdAt: new Date().toISOString()
+        rationale: parsed.data.rationale
       },
       actor: parsed.data.author
+    };
+  },
+
+  confirmReview: async ({ request }) => {
+    const formData = await request.formData();
+    const parsed = confirmReviewSchema.safeParse(Object.fromEntries(formData));
+    if (!parsed.success) return failure(parsed.error);
+
+    return {
+      success: true,
+      confirmReview: parsed.data
     };
   },
 

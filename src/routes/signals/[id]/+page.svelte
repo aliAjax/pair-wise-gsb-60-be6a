@@ -3,16 +3,32 @@
   import type { SubmitFunction } from '@sveltejs/kit';
   import EvidenceMatrix from '$lib/components/EvidenceMatrix.svelte';
   import RiskBadge from '$lib/components/RiskBadge.svelte';
-  import type { AuditEntry, CaseVersion, EvidenceItem, SignalStatus } from '$lib/models/signal';
+  import type {
+    CaseVersion,
+    SignalStatus,
+    VersionState
+  } from '$lib/models/signal';
+  import { shortFingerprint } from '$lib/services/fingerprint';
   import { exportSignalReport } from '$lib/services/signal-service';
-  import { signalStore } from '$lib/stores/signal-store';
+  import {
+    pendingReviewVersions,
+    signalStore,
+    type EvidenceInput,
+    type VersionInput
+  } from '$lib/stores/signal-store';
   import type { ActionData, PageData } from './$types';
 
   export let data: PageData;
   export let form: ActionData;
 
+  let actionError: string | null = null;
+  let actionNotice: string | null = null;
+
   $: signal = $signalStore.find((item) => item.id === data.id);
-  $: nextVersion = (signal?.versions[0]?.version ?? 0) + 1;
+  $: nextVersion = (signal?.versions.reduce((max, version) => Math.max(max, version.version), 0) ?? 0) + 1;
+  $: pendingVersions = signal ? pendingReviewVersions(signal) : [];
+
+  const defaultSourceBatch = `IMP-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}`;
 
   const statusOptions: Array<{ value: SignalStatus; label: string }> = [
     { value: 'investigating', label: '转入调查' },
@@ -22,19 +38,146 @@
     { value: 'closed', label: '关闭信号' }
   ];
 
-  const transitionHandler: SubmitFunction = () => {
+  const versionStateMeta: Record<VersionState, { label: string; badgeClass: string }> = {
+    active: { label: '当前有效', badgeClass: 'bg-emerald-100 text-emerald-900' },
+    pending_review: { label: '待复核', badgeClass: 'bg-amber-100 text-amber-950' },
+    confirmed: { label: '复核确认', badgeClass: 'bg-teal-100 text-teal-900' },
+    superseded: { label: '已取代', badgeClass: 'bg-surface-200-800 text-surface-500-400' }
+  };
+
+  const dispositionLabels: Record<CaseVersion['disposition'], string> = {
+    continue_observation: '继续观察',
+    risk_communication: '风险沟通',
+    corrective_action: '纠正措施'
+  };
+
+  function baseRevisionOf(formData: FormData): number {
+    return Number(formData.get('baseRevision') ?? 0);
+  }
+
+  function reportOutcome(outcome: { ok: boolean; message?: string }, notice: string) {
+    if (outcome.ok) {
+      actionNotice = notice;
+    } else {
+      actionError = outcome.message ?? '操作未完成，请核对后重试。';
+    }
+  }
+
+  const transitionHandler: SubmitFunction = ({ formData }) => {
+    const baseRevision = baseRevisionOf(formData);
     return async ({ result, update }) => {
+      actionError = null;
+      actionNotice = null;
       if (result.type === 'success') {
         const payload = result.data as {
           transition?: { id: string; nextStatus: SignalStatus; reason: string; actor: string };
         };
         if (payload.transition) {
-          signalStore.transition(
+          const outcome = await signalStore.transition(
             payload.transition.id,
             payload.transition.nextStatus,
             payload.transition.reason,
-            payload.transition.actor
+            payload.transition.actor,
+            baseRevision
           );
+          reportOutcome(outcome, '状态流转已记录。');
+        }
+      }
+      await update({ reset: true });
+    };
+  };
+
+  const evidenceHandler: SubmitFunction = ({ formData }) => {
+    const baseRevision = baseRevisionOf(formData);
+    return async ({ result, update }) => {
+      actionError = null;
+      actionNotice = null;
+      if (result.type === 'success' && signal) {
+        const payload = result.data as { evidence?: EvidenceInput; actor?: string };
+        if (payload.evidence) {
+          const outcome = await signalStore.addEvidence(
+            signal.id,
+            payload.evidence,
+            payload.actor ?? signal.owner,
+            baseRevision
+          );
+          if (outcome.ok) {
+            actionNotice =
+              outcome.value.outcome === 'associated'
+                ? `内容指纹一致，已追加来源批次关联（${outcome.value.evidenceId}），未重复建档。`
+                : outcome.value.outcome === 'revised'
+                  ? `证据 ${outcome.value.evidenceId} 内容已修订，引用它的结论已转待复核。`
+                  : `证据 ${outcome.value.evidenceId} 已登记来源批次与内容指纹。`;
+          } else {
+            actionError = outcome.message;
+          }
+        }
+      }
+      await update({ reset: true });
+    };
+  };
+
+  const versionHandler: SubmitFunction = ({ formData }) => {
+    const baseRevision = baseRevisionOf(formData);
+    return async ({ result, update }) => {
+      actionError = null;
+      actionNotice = null;
+      if (result.type === 'success' && signal) {
+        const payload = result.data as { version?: VersionInput };
+        if (payload.version) {
+          const outcome = await signalStore.addVersion(signal.id, payload.version, baseRevision);
+          reportOutcome(
+            outcome,
+            outcome.ok ? `结论 V${outcome.value.version} 已保存，并记录引用的证据版本指纹。` : ''
+          );
+        }
+      }
+      await update({ reset: true });
+    };
+  };
+
+  const confirmReviewHandler: SubmitFunction = ({ formData }) => {
+    const baseRevision = baseRevisionOf(formData);
+    return async ({ result, update }) => {
+      actionError = null;
+      actionNotice = null;
+      if (result.type === 'success' && signal) {
+        const payload = result.data as {
+          confirmReview?: { versionId: string; actor: string; note: string };
+        };
+        if (payload.confirmReview) {
+          const outcome = await signalStore.confirmReview(
+            signal.id,
+            payload.confirmReview.versionId,
+            payload.confirmReview.actor,
+            payload.confirmReview.note,
+            baseRevision
+          );
+          reportOutcome(
+            outcome,
+            outcome.ok ? `V${outcome.value.version} 复核确认完成，信号恢复可处置。` : ''
+          );
+        }
+      }
+      await update({ reset: true });
+    };
+  };
+
+  const reopenHandler: SubmitFunction = ({ formData }) => {
+    const baseRevision = baseRevisionOf(formData);
+    return async ({ result, update }) => {
+      actionError = null;
+      actionNotice = null;
+      if (result.type === 'success') {
+        const payload = result.data as { reopen?: { id: string; actor: string; reason: string } };
+        if (payload.reopen) {
+          const outcome = await signalStore.reopen(
+            payload.reopen.id,
+            payload.reopen.actor,
+            payload.reopen.reason,
+            baseRevision
+          );
+          reportOutcome(outcome, '信号已重新打开。');
         }
       }
       await update({ reset: true });
@@ -55,6 +198,7 @@
         <a class="text-sm text-primary-700-300 hover:underline" href="/signals">返回信号台账</a>
         <span class="text-surface-400">/</span>
         <span class="text-sm text-surface-500-400">{signal.id}</span>
+        <span class="badge bg-surface-200-800">修订 R{signal.revision}</span>
       </div>
       <h1 class="mt-3 max-w-4xl text-2xl font-semibold">{signal.title}</h1>
       <div class="mt-3"><RiskBadge risk={signal.riskLevel} status={signal.status} /></div>
@@ -66,6 +210,49 @@
 
   {#if form?.message}
     <div class="mb-5 rounded border border-error-300 bg-error-50 p-3 text-sm text-error-900">{form.message}</div>
+  {/if}
+  {#if actionError}
+    <div class="mb-5 rounded border border-error-300 bg-error-50 p-3 text-sm text-error-900">{actionError}</div>
+  {/if}
+  {#if actionNotice}
+    <div class="mb-5 rounded border border-teal-300 bg-teal-50 p-3 text-sm text-teal-900">{actionNotice}</div>
+  {/if}
+
+  {#if pendingVersions.length > 0}
+    <section class="mb-6 rounded border border-amber-400 bg-amber-50 p-4">
+      <h2 class="font-semibold text-amber-950">结论待复核：证据版本已变化</h2>
+      <p class="mt-1 text-sm text-amber-900">
+        以下结论引用的证据在其形成后发生变化，结论已失效并保留待复核。复核人确认（或形成新结论版本）前，不能继续处置本信号。
+      </p>
+      <div class="mt-4 space-y-4">
+        {#each pendingVersions as version (version.id)}
+          <article class="rounded border border-amber-300 bg-surface-50-950 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="font-medium">V{version.version} · {version.author}</p>
+              <span class="text-xs text-surface-500-400">失效于 {version.staleAt?.slice(0, 16).replace('T', ' ')}</span>
+            </div>
+            <p class="mt-2 text-sm">{version.summary}</p>
+            <p class="mt-2 text-xs text-amber-900">失效原因：{version.staleReason}</p>
+            <form class="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]" method="POST" action="?/confirmReview" use:enhance={confirmReviewHandler}>
+              <input type="hidden" name="id" value={signal.id} />
+              <input type="hidden" name="versionId" value={version.id} />
+              <input type="hidden" name="baseRevision" value={signal.revision} />
+              <label>
+                <span class="mb-1 block text-xs font-medium">复核人（须与作者不同）</span>
+                <input class="input" name="actor" placeholder="第二名评审专员" />
+              </label>
+              <label>
+                <span class="mb-1 block text-xs font-medium">复核意见</span>
+                <input class="input" name="note" placeholder="核对当前证据后结论仍然有效的依据" />
+              </label>
+              <div class="flex items-end">
+                <button class="btn variant-filled-primary" type="submit">确认仍然有效</button>
+              </div>
+            </form>
+          </article>
+        {/each}
+      </div>
+    </section>
   {/if}
 
   <section class="workspace-grid mb-6">
@@ -98,6 +285,11 @@
     <aside class="col-span-12 rounded border border-surface-300-700 bg-surface-100-900 p-4 xl:col-span-4">
       <h2 class="font-semibold">状态流转</h2>
       <p class="mt-1 text-xs text-surface-500-400">每次流转都记录依据、操作人和时间。</p>
+      {#if pendingVersions.length > 0}
+        <div class="mt-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          存在待复核结论，复核确认前不能继续处置。
+        </div>
+      {/if}
       <form
         class="mt-4 space-y-3"
         method="POST"
@@ -105,9 +297,10 @@
         use:enhance={transitionHandler}
       >
         <input type="hidden" name="id" value={signal.id} />
+        <input type="hidden" name="baseRevision" value={signal.revision} />
         <label class="block">
           <span class="mb-1 block text-sm font-medium">目标状态</span>
-          <select class="select" name="nextStatus">
+          <select class="select" name="nextStatus" disabled={pendingVersions.length > 0}>
             {#each statusOptions as option}
               <option value={option.value}>{option.label}</option>
             {/each}
@@ -121,7 +314,9 @@
           <span class="mb-1 block text-sm font-medium">流转依据</span>
           <textarea class="textarea" name="reason" rows="3" placeholder="说明新增证据、风险判断或复核结论"></textarea>
         </label>
-        <button class="btn w-full variant-filled-primary" type="submit">提交状态流转</button>
+        <button class="btn w-full variant-filled-primary" type="submit" disabled={pendingVersions.length > 0}>
+          提交状态流转
+        </button>
       </form>
 
       {#if signal.status === 'closed'}
@@ -132,18 +327,10 @@
             class="mt-3 space-y-3"
             method="POST"
             action="?/reopen"
-            use:enhance={() =>
-              async ({ result, update }) => {
-                if (result.type === 'success') {
-                  const payload = result.data as { reopen?: { id: string; actor: string; reason: string } };
-                  if (payload.reopen) {
-                    signalStore.reopen(payload.reopen.id, payload.reopen.actor, payload.reopen.reason);
-                  }
-                }
-                await update({ reset: true });
-              }}
+            use:enhance={reopenHandler}
           >
             <input type="hidden" name="id" value={signal.id} />
+            <input type="hidden" name="baseRevision" value={signal.revision} />
             <input class="input" name="actor" value={signal.owner} aria-label="操作人" />
             <textarea class="textarea" name="reason" rows="2" placeholder="描述新报告及其影响"></textarea>
             <button class="btn w-full variant-soft-error" type="submit">重新打开信号</button>
@@ -157,7 +344,9 @@
     <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h2 class="text-lg font-semibold">证据矩阵</h2>
-        <p class="mt-1 text-sm text-surface-500-400">强支持、弱支持和相反证据并列保存，不覆盖替代解释。</p>
+        <p class="mt-1 text-sm text-surface-500-400">
+          每项证据登记来源批次与内容指纹；同一指纹只追加关联，内容修订保留历史并触发结论复核。
+        </p>
       </div>
       <span class="badge">{signal.evidence.length} 项证据</span>
     </div>
@@ -171,16 +360,10 @@
         class="mt-4 grid gap-4 md:grid-cols-2"
         method="POST"
         action="?/evidence"
-        use:enhance={() =>
-          async ({ result, update }) => {
-            if (result.type === 'success') {
-              const payload = result.data as { evidence?: EvidenceItem; actor?: string };
-              if (payload.evidence) signalStore.addEvidence(signal.id, payload.evidence, payload.actor ?? signal.owner);
-            }
-            await update({ reset: true });
-          }}
+        use:enhance={evidenceHandler}
       >
         <input type="hidden" name="id" value={signal.id} />
+        <input type="hidden" name="baseRevision" value={signal.revision} />
         <label>
           <span class="mb-1 block text-sm font-medium">证据类型</span>
           <select class="select" name="evidenceType">
@@ -210,6 +393,10 @@
           <input class="input" name="source" />
         </label>
         <label>
+          <span class="mb-1 block text-sm font-medium">来源批次</span>
+          <input class="input" name="sourceBatch" value={defaultSourceBatch} />
+        </label>
+        <label>
           <span class="mb-1 block text-sm font-medium">关联批号</span>
           <input class="input" name="batch" value={signal.batch} />
         </label>
@@ -229,21 +416,17 @@
 
     <section class="rounded border border-surface-300-700 bg-surface-100-900 p-4">
       <h2 class="font-semibold">形成结论版本</h2>
+      <p class="mt-1 text-xs text-surface-500-400">
+        保存时将记录当前 {signal.evidence.length} 项证据的版本指纹，作为结论引用的证据基线。
+      </p>
       <form
         class="mt-4 grid gap-4 md:grid-cols-2"
         method="POST"
         action="?/version"
-        use:enhance={() =>
-          async ({ result, update }) => {
-            if (result.type === 'success') {
-              const payload = result.data as { version?: CaseVersion; actor?: string };
-              if (payload.version) signalStore.addVersion(signal.id, payload.version, payload.actor ?? signal.owner);
-            }
-            await update({ reset: true });
-          }}
+        use:enhance={versionHandler}
       >
         <input type="hidden" name="id" value={signal.id} />
-        <input type="hidden" name="versionNumber" value={nextVersion} />
+        <input type="hidden" name="baseRevision" value={signal.revision} />
         <label>
           <span class="mb-1 block text-sm font-medium">版本作者</span>
           <input class="input" name="author" value={signal.owner} />
@@ -275,14 +458,35 @@
     <section class="rounded border border-surface-300-700 bg-surface-100-900 p-4">
       <h2 class="font-semibold">结论版本</h2>
       <div class="mt-4 space-y-4">
-        {#each signal.versions as version}
-          <article class="border-l-2 border-teal-600 pl-4">
+        {#each signal.versions as version (version.id)}
+          <article class="border-l-2 pl-4 {version.state === 'pending_review' ? 'border-amber-500' : version.state === 'superseded' ? 'border-surface-300-700' : 'border-teal-600'}">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <p class="font-medium">V{version.version} · {version.author}</p>
-              <span class="text-xs text-surface-500-400">{version.createdAt.slice(0, 10)}</span>
+              <div class="flex items-center gap-2">
+                <span class="badge {versionStateMeta[version.state].badgeClass}">{versionStateMeta[version.state].label}</span>
+                <span class="text-xs text-surface-500-400">{version.createdAt.slice(0, 10)}</span>
+              </div>
             </div>
             <p class="mt-2 text-sm">{version.summary}</p>
+            <p class="mt-1 text-xs text-surface-500-400">建议处置：{dispositionLabels[version.disposition]}</p>
             <p class="mt-2 text-xs text-surface-500-400">{version.rationale}</p>
+            {#if version.evidenceRefs.length > 0}
+              <div class="mt-2 flex flex-wrap gap-1">
+                {#each version.evidenceRefs as ref}
+                  <span class="badge bg-surface-200-800 text-xs" title="引用证据 {ref.evidenceId} 的修订 r{ref.revision}">
+                    {ref.evidenceId} · r{ref.revision} · {shortFingerprint(ref.fingerprint)}
+                  </span>
+                {/each}
+              </div>
+            {/if}
+            {#if version.state === 'pending_review' && version.staleReason}
+              <p class="mt-2 text-xs text-amber-800">失效原因:{version.staleReason}</p>
+            {/if}
+            {#if version.confirmedBy}
+              <p class="mt-2 text-xs text-teal-800">
+                复核人 {version.confirmedBy} 于 {version.confirmedAt?.slice(0, 16).replace('T', ' ')} 确认：{version.reviewNote}
+              </p>
+            {/if}
           </article>
         {:else}
           <p class="text-sm text-surface-500-400">尚未形成正式结论版本。</p>

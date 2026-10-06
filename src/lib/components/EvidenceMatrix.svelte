@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { EvidenceItem } from '$lib/models/signal';
+  import { shortFingerprint } from '$lib/services/fingerprint';
 
   export let evidence: EvidenceItem[];
 
@@ -31,16 +32,37 @@
     >
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p class="text-xs font-medium text-surface-500-400">{typeLabels[item.type]}</p>
+          <p class="text-xs font-medium text-surface-500-400">{typeLabels[item.type]} · {item.id}</p>
           <h4 class="mt-1 font-semibold">{item.title}</h4>
         </div>
-        <span class="badge">{strengthLabels[item.strength]}</span>
+        <div class="flex items-center gap-2">
+          {#if item.revision > 1}
+            <span class="badge bg-amber-100 text-amber-950" title="内容已修订 {item.revision - 1} 次">r{item.revision}</span>
+          {/if}
+          <span class="badge">{strengthLabels[item.strength]}</span>
+        </div>
       </div>
       <p class="mt-3 text-sm text-surface-600-300">{item.note}</p>
       <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-surface-500-400">
         <span>来源：{item.source}</span>
         <span>批号：{item.batch}</span>
         <span>录入：{item.createdAt.slice(0, 10)}</span>
+      </div>
+      <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-surface-500-400">
+        <span title="内容指纹 {item.fingerprint}">指纹：{shortFingerprint(item.fingerprint)}</span>
+        <span>来源批次：{item.sourceBatch}</span>
+        {#if item.references.length > 1}
+          <details class="inline">
+            <summary class="inline cursor-pointer text-primary-700-300">
+              {item.references.length} 批次关联
+            </summary>
+            <ul class="mt-1 space-y-1 rounded border border-surface-300-700 p-2">
+              {#each item.references as reference}
+                <li>{reference.sourceBatch} · {reference.actor} · {reference.createdAt.slice(0, 10)}</li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
       </div>
     </article>
   {/each}

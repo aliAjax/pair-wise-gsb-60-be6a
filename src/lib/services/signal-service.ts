@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import type { SignalCase, SignalFilters } from '$lib/models/signal';
-import { signalStore } from '$lib/stores/signal-store';
+import { ledgerMeta, signalStore } from '$lib/stores/signal-store';
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,15 +32,46 @@ export async function listSignals(filters: SignalFilters = {}): Promise<SignalCa
 export function exportSignalReport(id: string) {
   const signal = get(signalStore).find((item) => item.id === id);
   if (!signal) return;
+  const meta = get(ledgerMeta);
+  const currentVersion = signal.versions.find(
+    (version) => version.state === 'active' || version.state === 'confirmed'
+  );
 
   const report = {
     generatedAt: new Date().toISOString(),
+    ledgerRevision: meta.revision,
+    schemaVersion: meta.schemaVersion,
+    signalRevision: signal.revision,
     product: signal.product,
     batch: signal.batch,
     status: signal.status,
     riskLevel: signal.riskLevel,
-    conclusion: signal.versions[0]?.summary ?? '尚未形成核查结论',
-    evidence: signal.evidence,
+    conclusion: currentVersion?.summary ?? '尚未形成核查结论',
+    versions: signal.versions.map((version) => ({
+      version: version.version,
+      state: version.state,
+      author: version.author,
+      summary: version.summary,
+      disposition: version.disposition,
+      createdAt: version.createdAt,
+      evidenceRefs: version.evidenceRefs,
+      staleReason: version.staleReason ?? null,
+      confirmedBy: version.confirmedBy ?? null,
+      confirmedAt: version.confirmedAt ?? null
+    })),
+    evidence: signal.evidence.map((item) => ({
+      id: item.id,
+      type: item.type,
+      title: item.title,
+      source: item.source,
+      sourceBatch: item.sourceBatch,
+      fingerprint: item.fingerprint,
+      revision: item.revision,
+      strength: item.strength,
+      batch: item.batch,
+      note: item.note,
+      references: item.references
+    })),
     audit: signal.audit
   };
 

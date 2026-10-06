@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { signalStore } from '$lib/stores/signal-store';
+  import { ledgerMeta, signalStore } from '$lib/stores/signal-store';
 
   $: signals = $signalStore;
   $: auditEntries = signals
@@ -7,15 +7,34 @@
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   function exportAll() {
+    const meta = $ledgerMeta;
     const payload = {
       generatedAt: new Date().toISOString(),
+      ledgerRevision: meta?.revision ?? null,
+      schemaVersion: meta?.schemaVersion ?? null,
       signals: signals.map((signal) => ({
         id: signal.id,
+        revision: signal.revision,
         product: signal.product,
         batch: signal.batch,
         status: signal.status,
         risk: signal.riskLevel,
-        conclusion: signal.versions[0] ?? null,
+        versions: signal.versions.map((version) => ({
+          version: version.version,
+          state: version.state,
+          author: version.author,
+          summary: version.summary,
+          evidenceRefs: version.evidenceRefs,
+          staleReason: version.staleReason ?? null,
+          confirmedBy: version.confirmedBy ?? null
+        })),
+        evidence: signal.evidence.map((item) => ({
+          id: item.id,
+          fingerprint: item.fingerprint,
+          revision: item.revision,
+          sourceBatch: item.sourceBatch,
+          references: item.references
+        })),
         audit: signal.audit
       }))
     };
@@ -34,7 +53,10 @@
 <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
   <div>
     <h1 class="text-2xl font-semibold">审计与可追溯报告</h1>
-    <p class="mt-1 text-sm text-surface-600-300">所有新增证据、结论版本和状态流转均保留操作者与时间。</p>
+    <p class="mt-1 text-sm text-surface-600-300">
+      所有新增证据、结论版本和状态流转均保留操作者与时间；当前显示台账
+      v{$ledgerMeta?.schemaVersion ?? '-'} · R{$ledgerMeta?.revision ?? '-'}，与总览、信号详情和批次追踪为同一版本。
+    </p>
   </div>
   <button class="btn variant-filled-primary" type="button" on:click={exportAll}>导出完整审计包</button>
 </div>

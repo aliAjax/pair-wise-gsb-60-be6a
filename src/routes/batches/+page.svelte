@@ -1,5 +1,6 @@
 <script lang="ts">
   import RiskBadge from '$lib/components/RiskBadge.svelte';
+  import type { CaseVersion, VersionState } from '$lib/models/signal';
   import { signalStore } from '$lib/stores/signal-store';
 
   $: signals = $signalStore;
@@ -9,6 +10,17 @@
   $: visibleSignals = signals.filter(
     (signal) => selectedBatch === 'all' || signal.affectedBatches.includes(selectedBatch)
   );
+
+  const stateLabels: Record<VersionState, string> = {
+    active: '有效',
+    pending_review: '待复核',
+    confirmed: '复核确认',
+    superseded: '已取代'
+  };
+
+  function currentVersion(signal: (typeof signals)[number]): CaseVersion | undefined {
+    return signal.versions.find((version) => version.state !== 'superseded');
+  }
 </script>
 
 <svelte:head><title>批次追踪 | 医疗器械安全信号核查平台</title></svelte:head>
@@ -50,6 +62,16 @@
         </div>
       </dl>
       <p class="mt-4 text-sm text-surface-600-300">覆盖批号：{signal.affectedBatches.join('、')}</p>
+      <p class="mt-2 text-sm text-surface-600-300">
+        {#if currentVersion(signal)}
+          结论 V{currentVersion(signal)?.version} ·
+          <span class={currentVersion(signal)?.state === 'pending_review' ? 'font-medium text-amber-700' : ''}>
+            {stateLabels[currentVersion(signal)?.state ?? 'active']}
+          </span>
+        {:else}
+          尚未形成结论
+        {/if}
+      </p>
       <a class="btn btn-sm mt-4 variant-soft-primary" href={`/signals/${signal.id}`}>查看批次证据</a>
     </article>
   {/each}

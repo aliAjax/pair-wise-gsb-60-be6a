@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { ledgerMeta, signalStore } from '$lib/stores/signal-store';
 
   const navItems = [
     { href: '/', label: '总览', short: '览' },
@@ -31,6 +32,14 @@
         {/each}
       </nav>
       <div class="ml-auto hidden items-center gap-3 lg:flex">
+        {#if $ledgerMeta}
+          <span
+            class="badge variant-soft-secondary"
+            title="台账架构 v{$ledgerMeta.schemaVersion} · 全局修订 R{$ledgerMeta.revision}，各页面显示同一版本"
+          >
+            台账 v{$ledgerMeta.schemaVersion} · R{$ledgerMeta.revision}
+          </span>
+        {/if}
         <div class="text-right">
           <p class="text-xs text-surface-500-400">当前角色</p>
           <p class="text-sm font-medium">安全评审专员</p>
@@ -39,6 +48,30 @@
       </div>
     </div>
   </header>
+
+  {#if $ledgerMeta?.migrationPending}
+    <div class="border-b border-amber-300 bg-amber-50">
+      <div class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-2 text-sm text-amber-950 lg:px-6">
+        <span>
+          旧台账迁移未完成：剩余 {$ledgerMeta.migrationRemaining} 条信号待迁移。旧数据保持可读，重试只会补录未迁移信号，不会重复导入。
+          {#if $ledgerMeta.migrationError}
+            <span class="text-xs">（{$ledgerMeta.migrationError}）</span>
+          {/if}
+        </span>
+        <button class="btn btn-sm variant-filled-warning" type="button" on:click={() => signalStore.retryMigration()}>
+          重试迁移
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if $ledgerMeta?.persistError}
+    <div class="border-b border-error-300 bg-error-50">
+      <div class="mx-auto max-w-[1600px] px-4 py-2 text-sm text-error-900 lg:px-6">
+        本地写入失败：{$ledgerMeta.persistError}。当前更改仅保留在本页内存中，已保存的旧数据未受影响、继续可读。
+      </div>
+    </div>
+  {/if}
 
   <main class="mx-auto max-w-[1600px] px-4 py-5 lg:px-6 lg:py-7">
     <slot />

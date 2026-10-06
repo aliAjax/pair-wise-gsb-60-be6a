@@ -1,4 +1,122 @@
-import type { SignalCase } from '$lib/models/signal';
+import type { CaseVersion, EvidenceItem, SignalCase } from '$lib/models/signal';
+import { evidenceFingerprint, snapshotEvidenceRefs } from '$lib/services/fingerprint';
+
+const SEED_BATCH = 'SEED-2026Q3';
+
+type SeedEvidence = Omit<EvidenceItem, 'fingerprint' | 'revision' | 'sourceBatch' | 'updatedAt' | 'references'>;
+
+function seedEvidence(item: SeedEvidence): EvidenceItem {
+  return {
+    ...item,
+    sourceBatch: SEED_BATCH,
+    fingerprint: evidenceFingerprint(item),
+    revision: 1,
+    updatedAt: item.createdAt,
+    references: [{ sourceBatch: SEED_BATCH, actor: '系统导入', createdAt: item.createdAt }]
+  };
+}
+
+type SeedVersion = Omit<CaseVersion, 'state' | 'evidenceRefs'>;
+
+function seedVersion(version: SeedVersion, evidence: EvidenceItem[]): CaseVersion {
+  return {
+    ...version,
+    state: 'active',
+    evidenceRefs: snapshotEvidenceRefs(evidence)
+  };
+}
+
+const sig018Evidence = [
+  seedEvidence({
+    id: 'E-018-01',
+    type: 'complaint',
+    title: '华东区域 11 起同类投诉',
+    source: '客服工单系统',
+    strength: 'strong',
+    batch: 'IP8-260401',
+    note: '报警发生时间集中在装机后第 7 至 14 天。',
+    createdAt: '2026-09-09T02:30:00.000Z'
+  }),
+  seedEvidence({
+    id: 'E-018-02',
+    type: 'repair',
+    title: '压力传感器零点漂移记录',
+    source: '维修记录 R-9081',
+    strength: 'moderate',
+    batch: 'IP8-260401',
+    note: '更换传感器后 3 台设备未复现，不能排除装配扭矩影响。',
+    createdAt: '2026-09-14T06:20:00.000Z'
+  }),
+  seedEvidence({
+    id: 'E-018-03',
+    type: 'test',
+    title: '留样压力曲线对比',
+    source: '可靠性实验室',
+    strength: 'contrary',
+    batch: 'IP8-260403',
+    note: '留样在标准测试条件下未出现同类波动，需补充现场使用条件。',
+    createdAt: '2026-09-24T09:15:00.000Z'
+  })
+];
+
+const sig015Evidence = [
+  seedEvidence({
+    id: 'E-015-01',
+    type: 'repair',
+    title: '电池容量测试记录',
+    source: '区域维修中心',
+    strength: 'strong',
+    batch: 'M12-251118',
+    note: '6 台设备容量均低于出厂规格下限。',
+    createdAt: '2026-08-25T03:10:00.000Z'
+  }),
+  seedEvidence({
+    id: 'E-015-02',
+    type: 'field_report',
+    title: '充电柜批次核查',
+    source: '现场服务报告 F-771',
+    strength: 'weak',
+    batch: 'M12-251118',
+    note: '两家医院使用相同型号充电柜，使用条件尚不一致。',
+    createdAt: '2026-09-02T07:20:00.000Z'
+  })
+];
+
+const sig011Evidence = [
+  seedEvidence({
+    id: 'E-011-01',
+    type: 'test',
+    title: '5.3.2 修复版本回归报告',
+    source: '软件测试报告 TR-4402',
+    strength: 'strong',
+    batch: 'SW-5.3.1',
+    note: '连续执行 500 次缩放切换未复现。',
+    createdAt: '2026-08-10T02:00:00.000Z'
+  })
+];
+
+const sig019Evidence = [
+  seedEvidence({
+    id: 'E-019-01',
+    type: 'adverse_event',
+    title: '过温保护触发事件报告',
+    source: '不良事件报告 AE-260921',
+    strength: 'strong',
+    batch: 'D9-260722',
+    note: '设备未造成人员伤害，但备用电池无法完成充电。',
+    createdAt: '2026-09-22T00:30:00.000Z'
+  }),
+  seedEvidence({
+    id: 'E-019-02',
+    type: 'test',
+    title: '首批拆机与热成像记录',
+    source: '质量实验室',
+    strength: 'strong',
+    batch: 'D9-260722',
+    note: '两套模组焊点阻抗偏高，温度高于控制上限。',
+    createdAt: '2026-09-27T08:00:00.000Z'
+  })
+];
 
 export const seedSignals: SignalCase[] = [
   {
@@ -16,41 +134,11 @@ export const seedSignals: SignalCase[] = [
     occurredAt: '2026-09-08',
     openedAt: '2026-09-09T02:10:00.000Z',
     updatedAt: '2026-09-28T08:30:00.000Z',
+    revision: 1,
     owner: '周宁',
     description: '投诉、维修与现场报告均出现阻塞压力提前触发，集中在同一批高分子管路。',
     affectedBatches: ['IP8-260401', 'IP8-260403'],
-    evidence: [
-      {
-        id: 'E-018-01',
-        type: 'complaint',
-        title: '华东区域 11 起同类投诉',
-        source: '客服工单系统',
-        strength: 'strong',
-        batch: 'IP8-260401',
-        note: '报警发生时间集中在装机后第 7 至 14 天。',
-        createdAt: '2026-09-09T02:30:00.000Z'
-      },
-      {
-        id: 'E-018-02',
-        type: 'repair',
-        title: '压力传感器零点漂移记录',
-        source: '维修记录 R-9081',
-        strength: 'moderate',
-        batch: 'IP8-260401',
-        note: '更换传感器后 3 台设备未复现，不能排除装配扭矩影响。',
-        createdAt: '2026-09-14T06:20:00.000Z'
-      },
-      {
-        id: 'E-018-03',
-        type: 'test',
-        title: '留样压力曲线对比',
-        source: '可靠性实验室',
-        strength: 'contrary',
-        batch: 'IP8-260403',
-        note: '留样在标准测试条件下未出现同类波动，需补充现场使用条件。',
-        createdAt: '2026-09-24T09:15:00.000Z'
-      }
-    ],
+    evidence: sig018Evidence,
     tasks: [
       {
         id: 'T-018-01',
@@ -68,15 +156,18 @@ export const seedSignals: SignalCase[] = [
       }
     ],
     versions: [
-      {
-        id: 'V-018-01',
-        version: 1,
-        author: '周宁',
-        summary: '投诉与维修记录支持传感器装配异常假设，尚需现场数据确认。',
-        disposition: 'continue_observation',
-        rationale: '实验室留样未复现，当前证据不足以直接启动召回。',
-        createdAt: '2026-09-24T10:00:00.000Z'
-      }
+      seedVersion(
+        {
+          id: 'V-018-01',
+          version: 1,
+          author: '周宁',
+          summary: '投诉与维修记录支持传感器装配异常假设，尚需现场数据确认。',
+          disposition: 'continue_observation',
+          rationale: '实验室留样未复现，当前证据不足以直接启动召回。',
+          createdAt: '2026-09-24T10:00:00.000Z'
+        },
+        sig018Evidence
+      )
     ],
     audit: [
       {
@@ -111,31 +202,11 @@ export const seedSignals: SignalCase[] = [
     occurredAt: '2026-08-22',
     openedAt: '2026-08-23T05:00:00.000Z',
     updatedAt: '2026-09-25T04:30:00.000Z',
+    revision: 1,
     owner: '林澈',
     description: '医院反馈满电后连续使用时间下降约 23%，尚未发现患者伤害。',
     affectedBatches: ['M12-251118'],
-    evidence: [
-      {
-        id: 'E-015-01',
-        type: 'repair',
-        title: '电池容量测试记录',
-        source: '区域维修中心',
-        strength: 'strong',
-        batch: 'M12-251118',
-        note: '6 台设备容量均低于出厂规格下限。',
-        createdAt: '2026-08-25T03:10:00.000Z'
-      },
-      {
-        id: 'E-015-02',
-        type: 'field_report',
-        title: '充电柜批次核查',
-        source: '现场服务报告 F-771',
-        strength: 'weak',
-        batch: 'M12-251118',
-        note: '两家医院使用相同型号充电柜，使用条件尚不一致。',
-        createdAt: '2026-09-02T07:20:00.000Z'
-      }
-    ],
+    evidence: sig015Evidence,
     tasks: [
       {
         id: 'T-015-01',
@@ -146,15 +217,18 @@ export const seedSignals: SignalCase[] = [
       }
     ],
     versions: [
-      {
-        id: 'V-015-01',
-        version: 1,
-        author: '林澈',
-        summary: '维持观察，补充充电环境分层分析。',
-        disposition: 'continue_observation',
-        rationale: '暂无临床风险升级证据，但衰减比例超出预期。',
-        createdAt: '2026-09-25T04:25:00.000Z'
-      }
+      seedVersion(
+        {
+          id: 'V-015-01',
+          version: 1,
+          author: '林澈',
+          summary: '维持观察，补充充电环境分层分析。',
+          disposition: 'continue_observation',
+          rationale: '暂无临床风险升级证据，但衰减比例超出预期。',
+          createdAt: '2026-09-25T04:25:00.000Z'
+        },
+        sig015Evidence
+      )
     ],
     audit: [
       {
@@ -182,21 +256,11 @@ export const seedSignals: SignalCase[] = [
     occurredAt: '2026-06-11',
     openedAt: '2026-06-12T01:40:00.000Z',
     updatedAt: '2026-08-18T09:30:00.000Z',
+    revision: 1,
     owner: '高远',
     description: '测量结果在切换显示器缩放比例后发生偏差，重启软件可恢复。',
     affectedBatches: ['SW-5.3.1'],
-    evidence: [
-      {
-        id: 'E-011-01',
-        type: 'test',
-        title: '5.3.2 修复版本回归报告',
-        source: '软件测试报告 TR-4402',
-        strength: 'strong',
-        batch: 'SW-5.3.1',
-        note: '连续执行 500 次缩放切换未复现。',
-        createdAt: '2026-08-10T02:00:00.000Z'
-      }
-    ],
+    evidence: sig011Evidence,
     tasks: [
       {
         id: 'T-011-01',
@@ -207,15 +271,18 @@ export const seedSignals: SignalCase[] = [
       }
     ],
     versions: [
-      {
-        id: 'V-011-01',
-        version: 1,
-        author: '高远',
-        summary: '确认版本修复有效，关闭信号并保留 90 天监测。',
-        disposition: 'corrective_action',
-        rationale: '修复版本已解决绘制坐标缓存问题。',
-        createdAt: '2026-08-18T09:30:00.000Z'
-      }
+      seedVersion(
+        {
+          id: 'V-011-01',
+          version: 1,
+          author: '高远',
+          summary: '确认版本修复有效，关闭信号并保留 90 天监测。',
+          disposition: 'corrective_action',
+          rationale: '修复版本已解决绘制坐标缓存问题。',
+          createdAt: '2026-08-18T09:30:00.000Z'
+        },
+        sig011Evidence
+      )
     ],
     audit: [
       {
@@ -243,31 +310,11 @@ export const seedSignals: SignalCase[] = [
     occurredAt: '2026-09-21',
     openedAt: '2026-09-22T00:20:00.000Z',
     updatedAt: '2026-09-28T11:40:00.000Z',
+    revision: 1,
     owner: '顾岚',
     description: '一台设备充电模组外壳变形并触发过温保护，现场已停用同批 12 台设备。',
     affectedBatches: ['D9-260722'],
-    evidence: [
-      {
-        id: 'E-019-01',
-        type: 'adverse_event',
-        title: '过温保护触发事件报告',
-        source: '不良事件报告 AE-260921',
-        strength: 'strong',
-        batch: 'D9-260722',
-        note: '设备未造成人员伤害，但备用电池无法完成充电。',
-        createdAt: '2026-09-22T00:30:00.000Z'
-      },
-      {
-        id: 'E-019-02',
-        type: 'test',
-        title: '首批拆机与热成像记录',
-        source: '质量实验室',
-        strength: 'strong',
-        batch: 'D9-260722',
-        note: '两套模组焊点阻抗偏高，温度高于控制上限。',
-        createdAt: '2026-09-27T08:00:00.000Z'
-      }
-    ],
+    evidence: sig019Evidence,
     tasks: [
       {
         id: 'T-019-01',
@@ -285,15 +332,18 @@ export const seedSignals: SignalCase[] = [
       }
     ],
     versions: [
-      {
-        id: 'V-019-01',
-        version: 1,
-        author: '顾岚',
-        summary: '初判为充电模组焊接缺陷，进入纠正措施与风险沟通准备。',
-        disposition: 'risk_communication',
-        rationale: '已有拆机证据支持批次性制造偏差。',
-        createdAt: '2026-09-28T11:40:00.000Z'
-      }
+      seedVersion(
+        {
+          id: 'V-019-01',
+          version: 1,
+          author: '顾岚',
+          summary: '初判为充电模组焊接缺陷，进入纠正措施与风险沟通准备。',
+          disposition: 'risk_communication',
+          rationale: '已有拆机证据支持批次性制造偏差。',
+          createdAt: '2026-09-28T11:40:00.000Z'
+        },
+        sig019Evidence
+      )
     ],
     audit: [
       {
