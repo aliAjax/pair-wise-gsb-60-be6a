@@ -2,9 +2,10 @@
   import { enhance } from '$app/forms';
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import SignalTable from '$lib/components/SignalTable.svelte';
-  import type { SignalCase, SignalFilters } from '$lib/models/signal';
+  import LedgerStamp from '$lib/components/LedgerStamp.svelte';
+  import type { MutationResult, SignalCase, SignalFilters } from '$lib/models/signal';
   import { listSignals } from '$lib/services/signal-service';
-  import { signalStore } from '$lib/stores/signal-store';
+  import { ledgerRevisionStore, signalStore } from '$lib/stores/signal-store';
   import type { ActionData } from './$types';
 
   export let form: ActionData;
@@ -17,9 +18,12 @@
     sourceType: 'all'
   };
   let showCreate = false;
+  let createError: string | null = null;
 
+  // 查询键含台账版本号：任何页面成功写入后版本号加一，列表自动重取同一版本数据
+  $: ledgerRevision = $ledgerRevisionStore;
   const query = createQuery({
-    queryKey: ['signals', filters],
+    queryKey: ['signals', filters, ledgerRevision],
     queryFn: () => listSignals(filters)
   });
 
@@ -37,9 +41,12 @@
     <h1 class="text-2xl font-semibold">信号台账</h1>
     <p class="mt-1 text-sm text-surface-600-300">筛选、聚类并跟踪全部产品安全信号。</p>
   </div>
-  <button class="btn variant-filled-primary" type="button" on:click={() => (showCreate = !showCreate)}>
-    {showCreate ? '收起登记表' : '登记新信号'}
-  </button>
+  <div class="flex items-center gap-3">
+    <LedgerStamp scope="信号台账" />
+    <button class="btn variant-filled-primary" type="button" on:click={() => (showCreate = !showCreate)}>
+      {showCreate ? '收起登记表' : '登记新信号'}
+    </button>
+  </div>
 </div>
 
 {#if showCreate}
@@ -55,9 +62,16 @@
         return async ({ result, update }) => {
           if (result.type === 'success') {
             const data = result.data as { signal?: SignalCase };
-            if (data.signal) signalStore.add(data.signal);
-            await queryClient.invalidateQueries({ queryKey: ['signals'] });
-            showCreate = false;
+            if (data.signal) {
+              const outcome: MutationResult = signalStore.add(data.signal);
+              if (outcome.ok) {
+                createError = null;
+                await queryClient.invalidateQueries({ queryKey: ['signals'] });
+                showCreate = false;
+              } else {
+                createError = outcome.message ?? '台账写入失败。';
+              }
+            }
           }
           await update({ reset: true });
         };
@@ -104,6 +118,9 @@
       </label>
       {#if form?.message}
         <p class="rounded bg-error-100 p-3 text-sm text-error-900 md:col-span-2 xl:col-span-3">{form.message}</p>
+      {/if}
+      {#if createError}
+        <p class="rounded bg-error-100 p-3 text-sm text-error-900 md:col-span-2 xl:col-span-3">{createError}</p>
       {/if}
       <div class="md:col-span-2 xl:col-span-3">
         <button class="btn variant-filled-primary" type="submit">提交并建立信号</button>

@@ -35,12 +35,34 @@ export function exportSignalReport(id: string) {
 
   const report = {
     generatedAt: new Date().toISOString(),
+    ledgerVersion: signalStore.getLedgerRevision(),
+    signalRevision: signal.revision,
     product: signal.product,
     batch: signal.batch,
     status: signal.status,
     riskLevel: signal.riskLevel,
-    conclusion: signal.versions[0]?.summary ?? '尚未形成核查结论',
-    evidence: signal.evidence,
+    reviewBlock: signal.reviewBlock ?? null,
+    conclusion: signal.versions.find((version) => version.state === 'active')?.summary ?? '尚未形成有效核查结论',
+    versions: signal.versions.map((version) => ({
+      version: version.version,
+      state: version.state,
+      summary: version.summary,
+      disposition: version.disposition,
+      evidenceRefs: version.evidenceRefs,
+      staleReason: version.staleReason ?? null,
+      createdAt: version.createdAt
+    })),
+    evidence: signal.evidence.map((item) => ({
+      id: item.id,
+      title: item.title,
+      source: item.source,
+      sourceBatch: item.sourceBatch,
+      batch: item.batch,
+      strength: item.strength,
+      fingerprint: item.fingerprint,
+      linkedBatches: item.linkedBatches,
+      revisions: item.revisions
+    })),
     audit: signal.audit
   };
 

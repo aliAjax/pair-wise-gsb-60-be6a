@@ -1,6 +1,10 @@
-import type { SignalCase } from '$lib/models/signal';
+import type { LegacySignalCase } from '$lib/models/signal';
 
-export const seedSignals: SignalCase[] = [
+/**
+ * 种子数据沿用旧台账结构（无指纹、引用快照、修订号），
+ * 由 signal-store 启动/迁移时规范化为可恢复版本结构。
+ */
+export const seedSignals: LegacySignalCase[] = [
   {
     id: 'SIG-2026-018',
     title: '输注泵阻塞报警集中发生于同一批管路',
